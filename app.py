@@ -16,7 +16,7 @@ CLAVE_PROXY = os.environ.get('CLAVE_PROXY', 'cambiar_esto')
 
 # Cargar el modelo CLIP una sola vez al iniciar el servicio
 print("Cargando modelo CLIP (open_clip)...")
-model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')
+model, _, preprocess = open_clip.create_model_and_transforms('RN50', pretrained='openai')
 model.to(device)
 model.eval()
 gc.collect()
