@@ -1,25 +1,29 @@
 from flask import Flask, request, jsonify
-import requests
+import torch
+from transformers import CLIPProcessor, CLIPModel
+from PIL import Image
+import io
 import os
 
 app = Flask(__name__)
 
-# El token de Hugging Face se configura como variable de entorno en Render (más seguro)
-HF_TOKEN = os.environ.get('HF_TOKEN', '')
-HF_MODELO = 'https://api-inference.huggingface.co/models/openai/clip-vit-base-patch32'
-
-# Clave simple para que solo tu sitio pueda usar este proxy
 CLAVE_PROXY = os.environ.get('CLAVE_PROXY', 'cambiar_esto')
+
+# Cargar el modelo CLIP una sola vez al iniciar el servicio (no por cada request)
+print("Cargando modelo CLIP...")
+model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+model.eval()
+print("Modelo CLIP cargado correctamente.")
 
 
 @app.route('/')
 def home():
-    return jsonify({'status': 'ok', 'mensaje': 'Proxy de embeddings activo'})
+    return jsonify({'status': 'ok', 'mensaje': 'Proxy de embeddings activo (CLIP local)'})
 
 
 @app.route('/embedding', methods=['POST'])
 def generar_embedding():
-    # Verificar clave
     clave = request.form.get('clave', '')
     if clave != CLAVE_PROXY:
         return jsonify({'ok': False, 'error': 'Clave incorrecta'}), 403
@@ -28,36 +32,21 @@ def generar_embedding():
         return jsonify({'ok': False, 'error': 'No se recibió ninguna foto'}), 400
 
     foto = request.files['foto']
-    imagen_bytes = foto.read()
 
     try:
-        resp = requests.post(
-            HF_MODELO,
-            headers={
-                'Authorization': f'Bearer {HF_TOKEN}',
-                'Content-Type': 'application/octet-stream',
-            },
-            data=imagen_bytes,
-            timeout=30,
-        )
+        img = Image.open(io.BytesIO(foto.read())).convert("RGB")
+        inputs = processor(images=img, return_tensors="pt")
 
-        if resp.status_code != 200:
-            return jsonify({
-                'ok': False,
-                'error': f'HF respondió {resp.status_code}: {resp.text[:300]}'
-            }), 502
+        with torch.no_grad():
+            features = model.get_image_features(**inputs)
+            # Normalizar el vector (importante para la similitud coseno)
+            features = features / features.norm(dim=-1, keepdim=True)
 
-        data = resp.json()
-
-        # Normalizar el formato de respuesta (a veces viene anidado)
-        embedding = data
-        if isinstance(data, list) and len(data) > 0 and isinstance(data[0], list):
-            embedding = data[0][0] if isinstance(data[0][0], list) else data[0]
-
+        embedding = features[0].tolist()
         return jsonify({'ok': True, 'embedding': embedding})
 
-    except requests.exceptions.RequestException as e:
-        return jsonify({'ok': False, 'error': f'Error de conexión: {str(e)}'}), 502
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Error procesando imagen: {str(e)}'}), 500
 
 
 if __name__ == '__main__':
