@@ -1,5 +1,6 @@
 flask==3.0.0
 torch==2.9.0
-transformers==4.46.0
+torchvision==0.20.0
+open_clip_torch==2.24.0
 pillow==10.4.0
 gunicorn==21.2.0

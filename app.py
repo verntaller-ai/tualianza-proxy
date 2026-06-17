@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 import torch
-from transformers import CLIPProcessor, CLIPModel
+import open_clip
 from PIL import Image
 import io
 import os
@@ -9,17 +9,16 @@ app = Flask(__name__)
 
 CLAVE_PROXY = os.environ.get('CLAVE_PROXY', 'cambiar_esto')
 
-# Cargar el modelo CLIP una sola vez al iniciar el servicio (no por cada request)
-print("Cargando modelo CLIP...")
-model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+# Cargar el modelo CLIP una sola vez al iniciar el servicio
+print("Cargando modelo CLIP (open_clip)...")
+model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')
 model.eval()
 print("Modelo CLIP cargado correctamente.")
 
 
 @app.route('/')
 def home():
-    return jsonify({'status': 'ok', 'mensaje': 'Proxy de embeddings activo (CLIP local)'})
+    return jsonify({'status': 'ok', 'mensaje': 'Proxy de embeddings activo (open_clip)'})
 
 
 @app.route('/embedding', methods=['POST'])
@@ -35,11 +34,10 @@ def generar_embedding():
 
     try:
         img = Image.open(io.BytesIO(foto.read())).convert("RGB")
-        inputs = processor(images=img, return_tensors="pt")
+        img_tensor = preprocess(img).unsqueeze(0)
 
         with torch.no_grad():
-            features = model.get_image_features(**inputs)
-            # Normalizar el vector (importante para la similitud coseno)
+            features = model.encode_image(img_tensor)
             features = features / features.norm(dim=-1, keepdim=True)
 
         embedding = features[0].tolist()
